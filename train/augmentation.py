@@ -118,3 +118,29 @@ def random_data_augmentation(rgb_img):
             pass
 
     return aug_img
+
+def apply_sobel_filter(rgb_img):
+    """
+    Applies the Sobel filter to detect edges in the input RGB image.
+
+    Parameters:
+    - rgb_img (numpy array): Input RGB image.
+
+    Returns:
+    - sobel_img (numpy array): Image with Sobel edge detection applied.
+    """
+    if rgb_img.ndim != 3 or rgb_img.shape[2] not in [3, 4]:
+        raise ValueError("Input must be a 3-channel (RGB) or 4-channel (RGBA) image.")
+
+    # Convert to grayscale
+    gray_img = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY)
+
+    # Apply Sobel filter for both x and y directions
+    sobel_x = cv2.Sobel(gray_img, cv2.CV_64F, 1, 0, ksize=3)
+    sobel_y = cv2.Sobel(gray_img, cv2.CV_64F, 0, 1, ksize=3)
+
+    # Combine the two gradients
+    sobel_img = cv2.magnitude(sobel_x, sobel_y)
+    sobel_img = np.uint8(255 * sobel_img / np.max(sobel_img))  # Normalize to uint8
+    
+    return sobel_img
