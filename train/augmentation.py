@@ -57,6 +57,7 @@ def apply_histogram_equalization(rgb_img, method='global'):
     return he_img
 
 
+
 def random_data_augmentation(rgb_img):
     """
     Applies a random data augmentation transformation to the input RGB image,
@@ -77,7 +78,7 @@ def random_data_augmentation(rgb_img):
     for i in range(random.randint(0,2)):
 
         transformation = random.choice([
-            'horizontal_flip', 'vertical_flip','color_jittering_brightness', 'color_jittering_contrast', 'color_jittering_saturation'
+            'horizontal_flip', 'vertical_flip','color_jittering_brightness', 'color_jittering_contrast', 'color_jittering_saturation', 'scaling'
         ])
 
         if transformation == 'rotation':
@@ -93,8 +94,8 @@ def random_data_augmentation(rgb_img):
             aug_img = cv2.flip(aug_img, flip_code)
 
         elif transformation == 'scaling':
-            # Scaling (between 80% to 120%), then resize back to original dimensions
-            scale_factor = random.uniform(0.8, 1.2)
+            # Scaling (between 100% to 120%), then resize back to original dimensions
+            scale_factor = random.uniform(1, 1.2)
             scaled_img = cv2.resize(aug_img, None, fx=scale_factor, fy=scale_factor)
             aug_img = cv2.resize(scaled_img, (original_w, original_h))
 
@@ -118,29 +119,3 @@ def random_data_augmentation(rgb_img):
             pass
 
     return aug_img
-
-def apply_sobel_filter(rgb_img):
-    """
-    Applies the Sobel filter to detect edges in the input RGB image.
-
-    Parameters:
-    - rgb_img (numpy array): Input RGB image.
-
-    Returns:
-    - sobel_img (numpy array): Image with Sobel edge detection applied.
-    """
-    if rgb_img.ndim != 3 or rgb_img.shape[2] not in [3, 4]:
-        raise ValueError("Input must be a 3-channel (RGB) or 4-channel (RGBA) image.")
-
-    # Convert to grayscale
-    gray_img = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY)
-
-    # Apply Sobel filter for both x and y directions
-    sobel_x = cv2.Sobel(gray_img, cv2.CV_64F, 1, 0, ksize=3)
-    sobel_y = cv2.Sobel(gray_img, cv2.CV_64F, 0, 1, ksize=3)
-
-    # Combine the two gradients
-    sobel_img = cv2.magnitude(sobel_x, sobel_y)
-    sobel_img = np.uint8(255 * sobel_img / np.max(sobel_img))  # Normalize to uint8
-    
-    return sobel_img

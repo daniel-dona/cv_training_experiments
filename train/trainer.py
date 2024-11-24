@@ -1,9 +1,16 @@
+import os
 import numpy as np
+import json
+import keras_tuner
+import matplotlib.pyplot as plt
+
 from tensorflow.keras.callbacks import TerminateOnNaN, EarlyStopping, ReduceLROnPlateau, ModelCheckpoint, TensorBoard
 from keras_tqdm import TQDMNotebookCallback as OutdatedTQDMCallback
 from sklearn.metrics import confusion_matrix
-import matplotlib.pyplot as plt
-import keras_tuner
+
+from tqdm import tqdm
+
+from .loader import GenericImage, GenericObject
 
 class TQDMNotebookCallback(OutdatedTQDMCallback):
     def build_tqdm_inner(self, *args, **kwargs):
@@ -27,7 +34,7 @@ class Trainer:
         
     def default_callbacks(self):
         self.enable_checkpoints()
-        #self.enable_early_stop()
+        self.enable_early_stop()
         self.enable_tensorboard()
         self.enable_tqdm()
            
@@ -38,7 +45,7 @@ class Trainer:
             histogram_freq=0,
             write_graph=True,
             write_images=False,
-            write_steps_per_second=True,
+            #write_steps_per_second=True,
             update_freq="epoch",
             profile_batch=0,
             embeddings_freq=0,
@@ -59,8 +66,8 @@ class Trainer:
         early_stop = EarlyStopping('val_accuracy', patience=patience, verbose=1)
         self.callbacks.append(early_stop)
         
-    def enable_lr_plateau(self, patience=25):
-        reduce_lr = ReduceLROnPlateau('val_accuracy=25', factor=0.75, patience=patience, verbose=0)
+    def enable_lr_plateau(self, patience):
+        reduce_lr = ReduceLROnPlateau('val_accuracy', factor=0.75, patience=patience, verbose=0)
         self.callbacks.append(reduce_lr)
 
     def tuner_train(self, tunable_model, max_trials=1000):
@@ -68,11 +75,32 @@ class Trainer:
         self.tunable_model = tunable_model
 
         self.tuner = keras_tuner.GridSearch(
-        self.tunable_model,
-        objective='val_accuracy',
-        max_trials=max_trials,
-        directory="./tuner/",
-        project_name=self.experiment.name)
+            self.tunable_model,
+            objective='val_accuracy',
+            max_trials=max_trials,
+            directory="./tuner/",
+            project_name=self.experiment.name
+        )
+        
+
+        '''self.tuner = keras_tuner.BayesianOptimization(
+            self.tunable_model,
+            objective='val_accuracy',
+            max_trials=max_trials
+        )'''
+            
+        '''
+        self.tuner = keras_tuner.Hyperband(
+            self.tunable_model,
+            objective='val_accuracy',
+            max_epochs=50000,
+            factor=2,
+            hyperband_iterations=1,
+            directory="./tuner/",
+            project_name=self.experiment.name
+        )
+        '''
+
 
         self.tuner.save_model = lambda x: None
 
@@ -124,9 +152,11 @@ class Trainer:
         
         print('Best validation model: epoch ' + str(best_idx+1), ' - val_accuracy ' + str(best_value))
 
+    def save(self):
+        trainer.experiment.model.save(f"{self.experiment.folder}/model.keras")
+
     def validate(self):
         
-    
         def draw_confusion_matrix(cm, categories):
             # Draw confusion matrix
             fig = plt.figure(figsize=[6.4*pow(len(categories), 0.5), 4.8*pow(len(categories), 0.5)])
@@ -145,10 +175,10 @@ class Trainer:
             fig.tight_layout()
             plt.show(fig)
 
-
         self.experiment.model.load_weights(f"{self.experiment.folder}/model.keras")
         y_true, y_pred = [], []
-        for ann in self.anns_valid:
+        
+        for ann in tqdm(self.dataset.anns_valid):
             # Load image
             for obj_pred in ann.objects:
                 # Generate prediction
@@ -191,8 +221,41 @@ class Trainer:
             # Dice coefficient refers to two times the intersection of two sets divided by the sum of their areas.
             # Dice = 2 |A∩B| / (|A|+|B|) = 2 TP / (2 TP + FP + FN)
             f1_score = 2 * ((precision * recall) / np.maximum(precision+recall, np.finfo(np.float64).eps))
-            print('> %s: Recall: %.3f%% Precision: %.3f%% Specificity: %.3f%% Dice: %.3f%%' % (list(categories.values())[idx], recall*100, precision*100, specificity*100, f1_score*100))
+            print('> %s: Recall: %.3f%% Precision: %.3f%% Specificity: %.3f%% Dice: %.3f%%' % (list(self.dataset.categories.values())[idx], recall*100, precision*100, specificity*100, f1_score*100))
 
     
-    def test(self):
-        pass
+    def test(self, test_folder="xview_recognition/xview_test"):
+        
+        anns = []
+        for (dirpath, dirnames, filenames) in tqdm(os.walk(test_folder)):
+            for filename in filenames:
+                image = GenericImage(dirpath[18:]+'/'+filename)
+                image.load()
+                image.tile = np.array([0, 0, 224, 224])
+                obj = GenericObject()
+                obj.bb = (0, 0, 224, 224)
+                obj.category = dirpath[dirpath.rfind('/')+1:]
+                image.add_object(obj)
+                anns.append(image)
+                
+        print('Number of testing images: ' + str(len(anns)))
+                
+        self.experiment.model.load_weights(f"{self.experiment.folder}/model.keras")
+        
+        predictions_data = {"images": {}, "annotations": {}}
+        for idx, ann in tqdm(enumerate(anns)):
+            image_data = {"image_id": ann.filename.split('/')[-1], "filename": ann.filename, "width": int(ann.tile[2]), "height": int(ann.tile[3])}
+            predictions_data["images"][idx] = image_data
+
+            for obj_pred in ann.objects:
+                # Generate prediction
+                warped_image = np.expand_dims(ann.img, 0)
+                predictions = self.experiment.model.predict(warped_image, verbose=0)
+                # Save prediction
+                pred_category = list(self.dataset.categories.values())[np.argmax(predictions)]
+                pred_score = np.max(predictions)
+                annotation_data = {"image_id": ann.filename.split('/')[-1], "category_id": pred_category, "bbox": [int(x) for x in obj_pred.bb]}
+                predictions_data["annotations"][idx] = annotation_data
+        
+        with open(f"{self.experiment.folder}/prediction.json", "w") as outfile:
+            json.dump(predictions_data, outfile)

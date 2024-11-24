@@ -6,7 +6,9 @@ import rasterio
 import cv2
 import tqdm
 from sklearn.model_selection import train_test_split
-
+from .augmentation import random_data_augmentation
+from collections import defaultdict
+from copy import deepcopy
 
 class GenericObject:
     """
@@ -82,8 +84,37 @@ class Dataset:
             
     def scale_dataset(self, scale=1):
         for image in self.anns:
-            image.scale(scale)        
+            image.scale(scale)  
+
+    def get_stats(self):
+        category_stats = defaultdict(int)
+        
+        for ann in self.anns:
+            category_stats[ann.objects[0].category] += 1
             
+        return dict(category_stats)
+
+    def resample(self, class_size):
+
+        new_anns = []
+        
+        for category in self.categories.values():
+
+            category_counter = 0
+
+            while category_counter <  class_size:
+            
+                for ann in self.anns:
+                    
+                    if ann.objects[0].category == category:
+                        new_anns.append(deepcopy(ann))
+                        category_counter += 1
+    
+                    if category_counter == class_size:
+                        break
+
+        self.anns = new_anns
+                        
     def split_train_test(self, test_size=0.1):
 
         anns_train, anns_valid = train_test_split(self.anns, test_size=test_size, random_state=1, shuffle=True)
@@ -106,6 +137,7 @@ class Dataset:
             for group in groups:
                 images, labels = [], []
                 for (img, obj) in group:
+                    #images.append(random_data_augmentation(img))
                     images.append(img)
                     #images.append(apply_histogram_equalization(random_data_augmentation(load_geoimage(filename)), method='clahe'))
                     #images.append(load_geoimage(filename))
@@ -147,16 +179,3 @@ class Dataset:
         steps = math.ceil(len(self.objs_valid)/batch_size)
         return self.valid_generator(batch_size=batch_size), steps
 
-"""
-
-# Generate the list of objects from annotations
-
-
-
-
-# Generators
-train_generator = generator_images(objs_train, batch_size, do_shuffle=True)
-valid_generator = generator_images(objs_valid, batch_size, do_shuffle=False)
-
-
-"""
